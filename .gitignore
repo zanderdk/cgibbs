@@ -1,0 +1,8 @@
+.idea
+build
+learn/*.png
+learn/__pycache__
+learn/*.dot
+learn/*.txt
+learn/*.test
+learn/*.train
