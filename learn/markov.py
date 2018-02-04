@@ -34,8 +34,8 @@ class Node:
 
 class Markov:
     def __init__(self, trans: np.ndarray, l: List[int], init: int = -1, initProb:Optional[List[int]] = None):
-        self.labels: np.ndarray = l
-        self.transitions: np.ndarray = trans
+        self.labels: List[int] = l
+        self.transitions: np.ndarray = np.array(trans)
         self.init: int = init
         if initProb is None:
             initProb = [0 for _ in range(len(self.transitions))]
