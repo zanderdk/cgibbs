@@ -6,3 +6,4 @@ learn/*.dot
 learn/*.txt
 learn/*.test
 learn/*.train
+learn/train

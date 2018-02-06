@@ -40,104 +40,28 @@ def ipv4(n: int, p: float, q: float) -> markov.Markov:
         labels.append(1)
     return markov.Markov(l, labels, 0)
 
-def callback(m:markov.Markov, like:float, step:int, writer):
-    m.draw("test.png")
-    with open('test.png', 'rb') as f:
-        io = f.read()
-        img_sum = tf.Summary.Image(encoded_image_string=io)
-        summary = tf.Summary(value=[
-            tf.Summary.Value(tag="MC", image=img_sum),
-            tf.Summary.Value(tag="loss", simple_value=-like)
-        ])
-        writer.add_summary(summary, step)
-        writer.flush()
-        print(like)
-
 m = ipv4(5, 0.5, 0.2)
 m.draw()
 traces = [markov.genNondeterministicTrace(m, 9) for _ in range(0, 10000)]
-print(traces)
+print("log likelihood original: " + str(markov.logLikelihood(m, traces)))
 
-#print("log likelihood original: " + str(markov.logLikelihood(m, traces)))
-
-def log_likelihood(A, B, pi, obs):
-    at = tf.transpose(A)
-
-    C1 = tf.reshape(pi, (3,1)) * tf.reshape(B[obs[0]], (3,1))
-
-    def forward(i, prev, sumlogc):
-        f = (tf.reshape(B[obs[i]], (3, 1)) * at) @ prev
-        c = 1. / tf.reduce_sum(f)
-        return tf.add(i, 1), f * c, tf.add(sumlogc, tf.log(c))
-
-    i = tf.constant(1)
-    c = lambda i, prev, sumlogc: tf.greater(obs[i], -1)
-    b = lambda i, prev, sumlogc: forward(i, prev, sumlogc)
-    r = tf.while_loop(c, b, [i, C1, tf.constant(0., dtype=tf.float64)])
-
-    return -r[2]
-
-def total_log_likelihood(A, B, pi, obs):
-    fn = lambda o: log_likelihood(A, B, pi, o)
-    pt = tf.map_fn(fn, obs, dtype=tf.float64)
-    return tf.reduce_sum(pt)
-
-
-def likelihood(A, B, pi, obs):
-    at = tf.transpose(A)
-
-    C1 = tf.reshape(pi, (3,1)) * tf.reshape(B[obs[0]], (3,1))
-
-    def forward(i, prev):
-        return tf.add(i, 1), (tf.reshape(B[obs[i]], (3, 1)) * at) @ prev
-
-    i = tf.constant(1)
-    c = lambda i, prev: tf.greater(obs[i], -1)
-    b = lambda i, prev: forward(i, prev)
-    r = tf.while_loop(c, b, [i, C1])
-
-    return tf.reduce_sum(r[1])
-
+parameters = {
+    'data': 'ipv4',
+    'beta': 0.06,
+    'maxiter': 35000,
+    'burnin': 5000,
+    'lag': 100,
+}
 
 with tf.Session().as_default() as sess:
     merged = tf.summary.merge_all()
-    logdir = "train/" + now.strftime("%y%m%d-%h%m%s") + "/"
+    par = ''
+    for x,y in parameters.items():
+        par += str(x)
+        par += ': '
+        par += str(y)
+        par += ' '
+    logdir = "train/" + par + ' at ' + now.strftime("%d/%m/%y-%H:%M") + "/"
     train_writer = tf.summary.FileWriter(logdir, sess.graph)
 
-    a = np.array([
-        [0.5, 0, 0.5],
-        [0.2, 0, 0.8],
-        [0.7, 0.3, 0.0]
-    ])
-
-    b = np.array([
-            [1, 0, 1],
-            [0, 1, 0],
-    ])
-
-    p = np.array([0.5,0.5,0])
-
-    A = tf.get_variable('a_', trainable=True, initializer=tf.constant(a, dtype=tf.float64))
-
-    B = tf.get_variable('b_', trainable=False, initializer=tf.constant(b, dtype=tf.float64))
-
-    pi = tf.get_variable('pi', trainable=True, initializer=tf.constant(
-        p, dtype=tf.float64
-    ))
-
-    data = np.array([
-        [0,0,0,-1],
-        [0,0,-1,-1]
-    ])
-
-    obs = tf.placeholder(dtype=np.int32, shape=(len(data),len(data[0])), name='obs')
-
-    res = total_log_likelihood(A, B ,pi ,obs)
-
-    sess.run(tf.global_variables_initializer())
-
-    k = math.exp(sess.run(res, feed_dict={obs: data}))
-
-    print(k)
-
-    #learnGibbs(traces, m.labels, 0.06, 35000, 10000, 10, lambda m,l,s: callback(m,l,s,train_writer), 10)
+    learnGibbs(traces, m.labels, parameters['beta'], parameters['maxiter'], parameters['burnin'], parameters['lag'])

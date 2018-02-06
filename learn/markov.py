@@ -58,7 +58,7 @@ class Markov:
 
     def draw(self, name="graph.png"):
         ma = {
-            0:"black",
+            0:"gray",
             1:"red",
             2:"cyan",
             3:"yellow",
@@ -69,11 +69,16 @@ class Markov:
         for id in range(len(self.labels)):
             l.append((id, self.labels[id]))
         for id,lab in l:
-            x = (id, {'color': ma[lab], 'peripheries':'2' if id == self.init else '1', 'style':'filled'})
+            x = (id+1, {'color': ma[lab], 'peripheries': '1', 'style':'filled'})
             ll.append(x)
+        ll.append((0, {'color': 'black', 'peripheries': '2', 'style':'filled'}))
+
+
         edges = list(zip(*self.transitions.nonzero()))
-        edges = [(s,t,self.transitions[s,t]) for s,t in edges]
-        edges = [(str(s),str(t),'%.2f' % w,'gray' + str(100 - int((w*100)))) for s,t,w in edges if w >= 0.01]
+        edges = [(s+1,t+1,self.transitions[s,t]) for s,t in edges]
+        for j,w in enumerate(self.initProb):
+            edges.append((0,j+1,w))
+        edges = [(str(s),str(t),'%.2f' % w,'black') for s,t,w in edges if w >= 0.01]
         st = "digraph \"\" {\n"
         for id, x in ll:
             s = str(id)
