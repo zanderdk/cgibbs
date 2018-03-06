@@ -145,7 +145,6 @@ def callback(m:markov.Markov, like:float, step:int, writer):
             return True
     return False
 
-
 gibbsParameters = {
     'data': 'pautomac{}'.format(problem),
     'optimizer': 'cgbbis',
@@ -155,6 +154,9 @@ gibbsParameters = {
     'lag': 100,
     'lables': [x for x in range(maxLabel+1)]
 }
+
+orig = gibbsParameters.copy()
+orig['lables'] = gibbsParameters['lables'].copy()
 
 alergiaParameters = {
     'data': 'pautomac{}'.format(problem),
@@ -214,6 +216,9 @@ beta = [0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5]
 
 def learnAllBeta():
     for x in beta:
+        best = None
+        gibbsParameters = orig.copy()
+        lab = gibbsParameters['lables']
         gibbsParameters['beta'] = x
         learn()
 
