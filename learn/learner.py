@@ -6,35 +6,97 @@ import tensorflow as tf
 from datetime import datetime
 now = datetime.now()
 import numpy as np
+import subprocess
+import os
+from datetime import datetime
+now = datetime.now()
 
-def callback(m:markov.Markov, like:float, step:int, writer):
-    m.draw("test.png")
-    with open('test.png', 'rb') as f:
-        io = f.read()
-        img_sum = tf.Summary.Image(encoded_image_string=io)
-        summary = tf.Summary(value=[
-            tf.Summary.Value(tag="MC", image=img_sum),
-            tf.Summary.Value(tag="loss", simple_value=like)
-        ])
-        writer.add_summary(summary, step)
-        writer.flush()
-        print('{} - log-likelihood {:.3f}'.format(step, like))
 
-def learnGibbs(traces: List[List[int]], lab:List[int], beta:float, maxiter:int, burnin:int, lag:int, func:Callable[[markov.Markov, float, int], None]=callback, iter:int=100):
+def perplexitySol(prts: List[float], c: markov.Markov, traces: List[List[int]]) -> float:
+    # su = 0
+    # prcs = []
+    # for x in traces:
+    #     prc = math.exp(prob([x], c))
+    #     prcs.append(prc)
+    #
+    # prcs = np.array(prcs)
+    # prcs = prcs / sum(prcs)
+    # prts = np.array(prts)
+    #
+    # for i,_ in enumerate(prts):
+    #     pc = prcs[i]
+    #     if (pc <= 0):
+    #         return float('inf')
+    #     su += prts[i] * math.log(pc, 2)
+    # return 2 ** (-su)
+
+    prts = np.array(prts)
+    prcs = np.array([prob([x], c) for x in traces])
+
+    prcs = np.exp(prcs)
+
+    prcs = prcs / sum(prcs)
+    prts = prts / sum(prts)
+
+    prcs = np.log2(prcs)
+
+    su = sum(prts * prcs)
+    return 2**(-1.0 * su)
+
+
+
+def prob(traces: List[List[int]], m:markov.Markov):
+    trans = m.transitions.tolist()
+    init = m.initProb
+    labels = m.labels
+
+    return gibbs.prob(traces, trans, labels, init)
+
+
+def learnGibbs(traces: List[List[int]], lab:List[int], beta:float, maxiter:int, burnin:int, lag:int, func:Callable[[markov.Markov, float, int], None]):
 
     def call(m, l, s):
         init = m[2].copy()
         L = m[1].copy()
         trans = m[0].copy()
         m = markov.Markov(trans, L, -1, init)
-        func(m, l, s)
+        return func(m, l, s)
 
 
-    m = gibbs.learn(traces, lab, beta, maxiter, burnin, lag, call, iter)
+    m = gibbs.learn(traces.copy(), lab.copy(), beta, maxiter, burnin, lag, call)
     init = m[2].copy()
     L = m[1].copy()
     trans = m[0].copy()
     m = markov.Markov(trans, L, -1, init)
+    return m
+
+def learnAlergia(traces: List[List[int]], els: float, callback=None, iter:int = 100, maxIter=35000) -> markov.Markov:
+    with open('tra.txt', 'w') as f:
+        lst = []
+        for y in traces:
+            tr = [str(x) for x in y]
+            st = ''.join(tr)
+            f.write(st)
+            f.write('\n')
+    args = 'java -jar alergia.jar tra.txt'.split(' ')
+    args.append(str(els))
+    print(subprocess.check_output(args))
+    with open('tra.txt', 'r') as f:
+        labels = str(f.readline())
+        labels = [int(x) for x in labels.split(' ')]
+        l = []
+        for x in labels:
+            ll = str(f.readline())
+            l.append([float(x) for x in ll.split(' ')])
+        tra = np.array(l)
+
+    m = markov.Markov(tra, labels, 0)
+    like = markov.logLikelihood(m, traces)
+
+    if callback is not None:
+        for i in range(0, maxIter, iter):
+            callback(m, -like, i)
+
     return m
 
 def learnGradientDecent(L: List[int], data:List[List[int]], callback):

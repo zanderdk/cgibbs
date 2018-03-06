@@ -33,7 +33,7 @@ class Node:
 
 
 class Markov:
-    def __init__(self, trans: np.ndarray, l: List[int], init: int = -1, initProb:Optional[List[int]] = None):
+    def __init__(self, trans: np.ndarray, l: List[int], init: int = -1, initProb:Optional[List[float]] = None):
         self.labels: List[int] = l
         self.transitions: np.ndarray = np.array(trans)
         self.init: int = init
@@ -56,20 +56,79 @@ class Markov:
 
         return g
 
-    def draw(self, name="graph.png"):
+
+    def prune(self):
+        for i,_ in enumerate(self.transitions):
+            for j,_ in enumerate(self.transitions[i]):
+                if self.transitions[i][j] < 0.0001:
+                    self.transitions[i][j] = 0
+
+        for i,_ in enumerate(self.initProb):
+            if self.initProb[i] < 0.0001:
+                self.initProb[i] = 0
+        #removeLonleyNodes(self)
+        self.normalize()
+
+    def normalize(self):
+        for i,_ in enumerate(self.transitions):
+            su = sum(self.transitions[i])
+            if su == 0:
+                self.transitions[i][i] = 1
+                continue
+            for j,_ in enumerate(self.transitions[i]):
+                self.transitions[i][j] = self.transitions[i][j] / su
+
+        su = sum(self.initProb)
+        for i,_ in enumerate(self.initProb):
+            self.initProb[i] = self.initProb[i] / su
+
+    def entropy(self):
+        sta = []
+        for i,_ in enumerate(self.labels):
+            su = 0
+            for j,_ in enumerate(self.labels):
+                pxi = self.transitions[i][j]
+                if pxi == 0:
+                    continue
+                su += pxi * math.log2(pxi)
+            sta.append(-su)
+        return sta
+
+    def labelEntropy(self):
+        se = dict()
+        for l in self.labels:
+            if l not in se:
+                se[l] = None
+        for i,e in enumerate(self.entropy()):
+            if se[self.labels[i]] is None:
+                se[self.labels[i]] = (e, 1)
+                continue
+            se[self.labels[i]] = (se[self.labels[i]][0]+e, se[self.labels[i]][1]+1)
+        for k,v in se.copy().items():
+            se[k] = v[0]/v[1]
+        return se
+
+    def draw(self, name="graph"):
         ma = {
             0:"gray",
             1:"red",
             2:"cyan",
             3:"yellow",
-            4:"green"
+            4:"green",
+            5:"blue",
+            6:"orange",
+            7:"purple",
+            8:"pink",
+            9:"brown"
         }
         l = []
         ll = []
         for id in range(len(self.labels)):
             l.append((id, self.labels[id]))
+        ent = self.entropy()
         for id,lab in l:
-            x = (id+1, {'color': ma[lab], 'peripheries': '1', 'style':'filled'})
+            e = ent[id]
+            x = (id+1, {'color': ma[lab], 'peripheries': '1', 'style':'filled', 'label':'"' + str(id+1) + '\n E: ' + '%.2f' % e + '"'})
             ll.append(x)
         ll.append((0, {'color': 'black', 'peripheries': '2', 'style':'filled'}))
 
@@ -92,8 +151,7 @@ class Markov:
             ste = f"{s} -> {t} [label={w}, color={c}];\n"
             st += ste
         st += '}'
-        #os.remove("graph.dot")
-        with open("graph.dot", 'w') as f:
+        with open(name + ".dot", 'w') as f:
             f.write(st)
         args = ("sh dot.sh " + name).split(" ")
         subprocess.check_output(args)
@@ -102,6 +160,13 @@ class Markov:
         g = self.graph()
         rc: Set[int] = nx.descendants(g, node) | {node}
         return rc
+
+    def reach(self) -> Set[int]:
+        se = set()
+        for i,x in enumerate(self.initProb):
+            if x > 0:
+                se = se | self.reachable(i)
+        return se
 
     def stateIds(self) -> Set[int]:
         return set(range(len(self.labels)))
@@ -132,6 +197,8 @@ def pathProb(m: Markov, tra: List[int]) -> float:
 
 def traceProb(m: Markov, trace: List[int]) -> float:
     probs = [pathProb(m, x) for x in pathsFromTraces(m, trace)]
+    if len(probs) == 0:
+        return float("-inf")
     pr = probs[0]
     for p in probs[1:]:
         pr = np.logaddexp(pr, p)
@@ -151,7 +218,7 @@ def genNondeterministicTrace(m: Markov, le = 1000) -> List[int]:
     return trace
 
 def removeLonleyNodes(m: Markov) -> Markov:
-    toRemove = list(m.stateIds() - m.reachable(m.init))
+    toRemove = list(m.stateIds() - m.reach())
     tra = m.transitions
     tra = np.delete(tra, toRemove, 0)
     tra = np.delete(tra, toRemove, 1)
@@ -284,28 +351,6 @@ def _path(m: Markov, seq:List[int], initState:int = 0, k:int = 100) -> List[int]
 
     seq.append(x)
     return _path(m, seq, x, k-1)
-
-def alergia(traces: List[List[int]], els: float) -> Markov:
-    with open('tra.txt', 'w') as f:
-        lst = []
-        for y in traces:
-            tr = [str(x) for x in y]
-            st = ''.join(tr)
-            f.write(st)
-            f.write('\n')
-    args = 'java -jar alergia.jar tra.txt'.split(' ')
-    args.append(str(els))
-    print(subprocess.check_output(args))
-    with open('tra.txt', 'r') as f:
-        labels = str(f.readline())
-        labels = [int(x) for x in labels.split(' ')]
-        l = []
-        for x in labels:
-            ll = str(f.readline())
-            l.append([float(x) for x in ll.split(' ')])
-        tra = np.array(l)
-    os.remove('tra.txt')
-    return Markov(tra, labels, 0)
 
 def perplexity(t: Markov, c: Markov, traces: List[List[int]]) -> float:
     su = 0

@@ -1,2 +1,2 @@
 #!/bin/bash
-dot -Tpng graph.dot > $1
+dot -Tpng $1.dot > $1.png

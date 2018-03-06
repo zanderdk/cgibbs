@@ -8,11 +8,14 @@ import learn.markov as markov
 np.random.seed(6)
 np.set_printoptions(suppress=True)
 np.set_printoptions(precision=2)
-from learn.learner import learnGibbs
+from learn.learner import learnGibbs, learnAlergia, prob, perplexitySol
 import tensorflow as tf
 from datetime import datetime
 now = datetime.now()
+import multiprocessing
+import os
 
+draw = False
 
 def ipv4(n: int, p: float, q: float) -> markov.Markov:
     l = []
@@ -40,28 +43,159 @@ def ipv4(n: int, p: float, q: float) -> markov.Markov:
         labels.append(1)
     return markov.Markov(l, labels, 0)
 
-m = ipv4(5, 0.5, 0.2)
-m.draw()
-traces = [markov.genNondeterministicTrace(m, 9) for _ in range(0, 10000)]
-print("log likelihood original: " + str(markov.logLikelihood(m, traces)))
-
-parameters = {
-    'data': 'ipv4',
-    'beta': 0.06,
-    'maxiter': 35000,
-    'burnin': 5000,
-    'lag': 100,
-}
-
-with tf.Session().as_default() as sess:
-    merged = tf.summary.merge_all()
+def parStr(parDic):
     par = ''
-    for x,y in parameters.items():
+    for x,y in parDic.items():
         par += str(x)
         par += ': '
         par += str(y)
         par += ' '
-    logdir = "train/" + par + ' at ' + now.strftime("%d/%m/%y-%H:%M") + "/"
-    train_writer = tf.summary.FileWriter(logdir, sess.graph)
+    return par
 
-    learnGibbs(traces, m.labels, parameters['beta'], parameters['maxiter'], parameters['burnin'], parameters['lag'])
+def readTrainSet(path:str) -> Tuple[int, List[List[int]]]:
+    with open(path) as f:
+        x = f.read()
+        l = x.split('\n')
+        first = l.pop(0)
+        _, maxLabel = tuple(first.split(' '))
+        maxLabel = int(maxLabel)
+        arr: List[List[int]] = []
+        for line in l:
+            li = line.split(' ')
+            li = [int(x) for x in li if x] + [maxLabel,maxLabel]
+            if li:
+                arr.append(li)
+        for row in arr:
+            row.pop(0)
+        return maxLabel, arr[:-1]
+
+
+def readSolution(path:str) -> List[float]:
+    with open(path) as f:
+        x = f.read()
+        l = x.split('\n')
+        l.pop(0)
+        arr = []
+        for line in l:
+            if line:
+                li = float(line)
+                arr.append(li)
+        return arr
+
+
+
+maxLabel, traces = readTrainSet('5.pautomac.train')
+_, testSet = readTrainSet('5.pautomac.test')
+sol = readSolution('5.pautomac_solution')
+traces += testSet
+
+lowest = float('inf')
+Glike = 0
+
+def callback(m:markov.Markov, like:float, step:int, writer):
+    global Glike, lowest
+    #perplexNoPrune = perplexitySol(sol, m, testSet)
+    #m.prune()
+    testLike = -prob(testSet, m)
+    perplex = perplexitySol(sol, m, testSet)
+    like = -like
+    Glike = like
+    if draw:
+        name = "test" + now.strftime("%H%M%S")
+        markov.removeLonleyNodes(m)
+        m.draw(name)
+        with open(name + '.png', 'rb') as f:
+            io = f.read()
+            img_sum = tf.Summary.Image(encoded_image_string=io)
+            summary = tf.Summary(value=[
+                tf.Summary.Value(tag="MC", image=img_sum),
+                tf.Summary.Value(tag="log-likelihood", simple_value=like),
+                tf.Summary.Value(tag="log-likelihood-test", simple_value=testLike),
+                tf.Summary.Value(tag="perplexity", simple_value=perplex)
+            ])
+            writer.add_summary(summary, step)
+            writer.flush()
+
+            print('{} - log-likelihood: {:.3f}, log-likelihood test set: {:.3f}, perplexity: {:.3f}'.format(
+                    step, like,
+                    testLike,
+                    perplex))
+        os.remove(name + '.png')
+        os.remove(name + '.dot')
+        if like < lowest:
+            lowest = like
+            return True
+    else:
+        summary = tf.Summary(value=[
+            tf.Summary.Value(tag="log-likelihood", simple_value=like),
+            tf.Summary.Value(tag="log-likelihood-test", simple_value=testLike),
+            tf.Summary.Value(tag="perplexity", simple_value=perplex)
+        ])
+        writer.add_summary(summary, step)
+        writer.flush()
+        print('{} - log-likelihood: {:.3f}, log-likelihood test set: {:.3f}, perplexity: {:.3f}'.format(step, like,
+                                                                                                        testLike,
+                                                                                                        perplex))
+        if (like < lowest):
+            lowest = like
+            return True
+    return False
+
+
+gibbsParameters = {
+    'data': 'pautomac5',
+    'optimizer': 'cgbbis',
+    'beta': 0.5,
+    'maxiter': 3000,
+    'burnin': 1000,
+    'lag': 100,
+    'lables': [x for x in range(maxLabel+1)]
+}
+
+alergiaParameters = {
+    'data': 'pautomac5',
+    'optimizer': 'alergia',
+    'epsilon': 0.99
+}
+
+def train(Param):
+    with tf.Session().as_default() as sess:
+        merged = tf.summary.merge_all()
+        logdir = "train/" + Param['data'] + "/" + parStr(Param) + ' at ' + now.strftime("%d/%m/%y-%H:%M") + "/"
+        train_writer = tf.summary.FileWriter(logdir, sess.graph)
+        print(Param)
+        m = learnGibbs(traces, Param['lables'], Param['beta'], Param['maxiter'], Param['burnin'], Param['lag'], lambda m,l,s: callback(m,l,s,train_writer))
+        return lab, Glike, m
+
+best = None
+lab = gibbsParameters['lables']
+
+def learn():
+    global lab, best
+    while(True):
+        gibbsParameters['lables'] = lab.copy()
+        lab, like, m = train(gibbsParameters.copy())
+        if best is None or like < best[1]:
+            best = (lab, like, m, m.labelEntropy())
+            del best[3][maxLabel]
+
+        ent = best[3]
+        if not best[3]:
+            lowest = 0
+            gibbsParameters['maxiter'] = 20000
+            gibbsParameters['lag'] = 100
+            gibbsParameters['burnin'] = 10000
+            gibbsParameters['lables'] = best[0]
+            lab, like, m = train(gibbsParameters.copy())
+            return m
+
+        ma = list(sorted([(y,x) for x,y in ent.items()], reverse=True))[0][1]
+        del best[3][ma]
+        lab = best[0].copy()
+        lab.append(ma)
+        lab = list(sorted(lab))
+        gibbsParameters['lables'] = lab
+
+    return m
+
+learn()
