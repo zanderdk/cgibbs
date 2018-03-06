@@ -1,13 +1,11 @@
 import libcgibbs as gibbs
-import math
-from typing import List, Dict, Set, Tuple, Callable
+from typing import List, Callable
 import learn.markov as markov
 import tensorflow as tf
 from datetime import datetime
 now = datetime.now()
 import numpy as np
 import subprocess
-import os
 from datetime import datetime
 now = datetime.now()
 
