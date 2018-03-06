@@ -14,6 +14,8 @@ from datetime import datetime
 now = datetime.now()
 import multiprocessing
 import os
+import sys
+import requests
 
 draw = False
 
@@ -53,40 +55,45 @@ def parStr(parDic):
     return par
 
 def readTrainSet(path:str) -> Tuple[int, List[List[int]]]:
-    with open(path) as f:
-        x = f.read()
-        l = x.split('\n')
-        first = l.pop(0)
-        _, maxLabel = tuple(first.split(' '))
-        maxLabel = int(maxLabel)
-        arr: List[List[int]] = []
-        for line in l:
-            li = line.split(' ')
-            li = [int(x) for x in li if x] + [maxLabel,maxLabel]
-            if li:
-                arr.append(li)
-        for row in arr:
-            row.pop(0)
-        return maxLabel, arr[:-1]
+    x = path
+    l = x.split('\n')
+    first = l.pop(0)
+    _, maxLabel = tuple(first.split(' '))
+    maxLabel = int(maxLabel)
+    arr: List[List[int]] = []
+    for line in l:
+        li = line.split(' ')
+        li = [int(x) for x in li if x] + [maxLabel,maxLabel]
+        if li:
+            arr.append(li)
+    for row in arr:
+        row.pop(0)
+    return maxLabel, arr[:-1]
 
 
 def readSolution(path:str) -> List[float]:
-    with open(path) as f:
-        x = f.read()
-        l = x.split('\n')
-        l.pop(0)
-        arr = []
-        for line in l:
-            if line:
-                li = float(line)
-                arr.append(li)
-        return arr
+    x = path
+    l = x.split('\n')
+    l.pop(0)
+    arr = []
+    for line in l:
+        if line:
+            li = float(line)
+            arr.append(li)
+    return arr
 
 
+problem = int(sys.argv[1])
+path = 'http://ai.cs.umbc.edu/icgi2012/challenge/Pautomac/competition/downloads/{}.pautomac.{}'
+solutionPath = 'http://ai.cs.umbc.edu/icgi2012/challenge/Pautomac/competition/solutions/{}.pautomac_solution.txt'
 
-maxLabel, traces = readTrainSet('5.pautomac.train')
-_, testSet = readTrainSet('5.pautomac.test')
-sol = readSolution('5.pautomac_solution')
+train = requests.get(path.format(problem, 'train')).text
+test = requests.get(path.format(problem, 'test')).text
+solution = requests.get(solutionPath.format(problem)).text
+
+maxLabel, traces = readTrainSet(train)
+_, testSet = readTrainSet(test)
+sol = readSolution(solution)
 traces += testSet
 
 lowest = float('inf')
@@ -136,14 +143,14 @@ def callback(m:markov.Markov, like:float, step:int, writer):
         print('{} - log-likelihood: {:.3f}, log-likelihood test set: {:.3f}, perplexity: {:.3f}'.format(step, like,
                                                                                                         testLike,
                                                                                                         perplex))
-        if (like < lowest):
+        if ((like + 2) < lowest):
             lowest = like
             return True
     return False
 
 
 gibbsParameters = {
-    'data': 'pautomac5',
+    'data': 'pautomac{}'.format(problem),
     'optimizer': 'cgbbis',
     'beta': 0.5,
     'maxiter': 3000,
@@ -153,15 +160,22 @@ gibbsParameters = {
 }
 
 alergiaParameters = {
-    'data': 'pautomac5',
+    'data': 'pautomac{}'.format(problem),
     'optimizer': 'alergia',
     'epsilon': 0.99
 }
 
+it = 1
+
 def train(Param):
     with tf.Session().as_default() as sess:
+        global it
         merged = tf.summary.merge_all()
-        logdir = "train/" + Param['data'] + "/" + parStr(Param) + ' at ' + now.strftime("%d/%m/%y-%H:%M") + "/"
+        prtParam = Param.copy()
+        del prtParam['lables']
+        prtParam['it'] = it
+        it += 1
+        logdir = "train/" + Param['data'] + "/" + parStr(prtParam) + ' at ' + now.strftime("%d/%m/%y-%H:%M") + "/"
         train_writer = tf.summary.FileWriter(logdir, sess.graph)
         print(Param)
         m = learnGibbs(traces, Param['lables'], Param['beta'], Param['maxiter'], Param['burnin'], Param['lag'], lambda m,l,s: callback(m,l,s,train_writer))
@@ -189,6 +203,7 @@ def learn():
             lab, like, m = train(gibbsParameters.copy())
             return m
 
+        print(ent)
         ma = list(sorted([(y,x) for x,y in ent.items()], reverse=True))[0][1]
         del best[3][ma]
         lab = best[0].copy()
@@ -198,4 +213,11 @@ def learn():
 
     return m
 
-learn()
+beta = [0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5]
+
+def learnAllBeta():
+    for x in beta:
+        gibbsParameters['beta'] = x
+        learn()
+
+learnAllBeta()

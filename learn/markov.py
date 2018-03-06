@@ -104,8 +104,10 @@ class Markov:
                 se[self.labels[i]] = (e, 1)
                 continue
             se[self.labels[i]] = (se[self.labels[i]][0]+e, se[self.labels[i]][1]+1)
+        unique, counts = np.unique(np.array(self.labels), return_counts=True)
+        dic = dict(zip(unique, counts))
         for k,v in se.copy().items():
-            se[k] = v[0]/v[1]
+            se[k] = (v[0]/v[1]) * (1/dic[k])
         return se
 
     def draw(self, name="graph"):
