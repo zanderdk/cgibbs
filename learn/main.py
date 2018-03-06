@@ -1,7 +1,5 @@
-from typing import List, Dict, Set, Tuple
+from typing import List, Tuple
 import random
-import math
-import subprocess
 random.seed(6)
 import numpy as np
 import learn.markov as markov
@@ -12,7 +10,6 @@ from learn.learner import learnGibbs, learnAlergia, prob, perplexitySol
 import tensorflow as tf
 from datetime import datetime
 now = datetime.now()
-import multiprocessing
 import os
 import sys
 import requests

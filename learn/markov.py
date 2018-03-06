@@ -1,14 +1,10 @@
 from typing import List, Dict, Tuple, Set, Optional
 import numpy as np
-import matplotlib.pyplot as plt
 import networkx as nx
 from random import randint
 import subprocess
-import os
 import math
 import prob
-from functools import reduce
-import operator
 import random
 
 class Node:
